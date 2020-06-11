@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <utility>
 #include <vector>
+#include<ctime>
 #include "ps/base.h"
 #include "ps/simple_app.h"
 namespace ps {
@@ -362,7 +363,12 @@ public:
     /** \brief add by cqq, server auto load data to worker**/
     void AutoPullUpdate(const int version, const KVMeta& req, const KVPairs<Val>& kvs = KVPairs<Val>()) {
         //int ts = obj_->NewRequest(kWorkerGroup);
-        for (auto receiver : Postoffice::Get()->GetNodeIDs(kWorkerGroup)){
+        //for (auto receiver : Postoffice::Get()->GetNodeIDs(kWorkerGroup)){
+        int throughput=-1;
+        int last_recv_id=-1;
+        while(1){
+        int receiver=Van::GetReceiver(throughput, last_recv_id); //added by vbc
+            if(receiver==-1)break;    //whether transmition is over
             if(kvs.keys.size()){
                 Message msg;
                 msg.meta.app_id = obj_->app_id();
@@ -380,7 +386,12 @@ public:
                     msg.AddData(kvs.lens);
                 }
                 PS_VLOG(2) << "Send an auto pull for" << req.key;
+                clock_t start = clock();
                 Postoffice::Get()->van()->Send(msg);
+                clock_t end = clock();
+                throughput= (int) ((double) (1/((end - start) / CLOCKS_PER_SEC)));
+                last_recv_id = receiver;
+
             }
         }
         //int num = Postoffice::Get()->GetNodeIDs(kWorkerGroup).size();

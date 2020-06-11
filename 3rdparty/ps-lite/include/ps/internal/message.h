@@ -120,7 +120,7 @@ struct Control {
     return ss.str();
   }
   /** \brief all commands */
-  enum Command { EMPTY, TERMINATE, ADD_NODE, BARRIER, ACK, HEARTBEAT };
+  enum Command { EMPTY, TERMINATE, ADD_NODE, BARRIER, ACK, HEARTBEAT,ASK, REPLY };
   /** \brief the command */
   Command cmd;
   /** \brief node infos */
@@ -137,9 +137,10 @@ struct Meta {
   /** \brief the empty value */
   static const int kEmpty;
   /** \brief default constructor */
-  Meta() : head(kEmpty), app_id(kEmpty), customer_id(kEmpty), timestamp(kEmpty),
-           sender(kEmpty), recver(kEmpty), request(false), push(false), key(kEmpty),
-           version(kEmpty), simple_app(false) {}
+  Meta() : head(kEmpty), app_id(kEmpty), customer_id(kEmpty),
+           timestamp(kEmpty), sender(kEmpty), recver(kEmpty),
+           request(false), push(false), simple_app(false), key(kEmpty),
+           version(kEmpty) {}
   std::string DebugString() const {
     std::stringstream ss;
     if (sender == Node::kEmpty) {
@@ -156,9 +157,7 @@ struct Meta {
       ss << ", app_id=" << app_id
          << ", customer_id=" << customer_id
          << ", simple_app=" << simple_app
-         << ", push=" << push
-         << ", key=" << key
-         << ", version=" << version;
+         << ", push=" << push;
     }
     if (head != kEmpty) ss << ", head=" << head;
     if (body.size()) ss << ", body=" << body;
@@ -185,12 +184,11 @@ struct Meta {
   bool request;
   /** \brief whether or not a push message */
   bool push;
-  /** \brief unique key of the kvs */
-  int key;
-  /** \brief version of data */
-  int version;
   /** \brief whether or not it's for SimpleApp */
   bool simple_app;
+
+  int key;
+  int version;
   /** \brief an string body */
   std::string body;
   /** \brief data type of message.data[i] */
