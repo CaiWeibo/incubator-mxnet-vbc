@@ -124,6 +124,13 @@ class Van {
     /** thread function for receving */
     void Receiving();
 
+    //added by vbc,ask for scheduler to get receiver_id
+    void Ask(int throughput, int last_recv_id);
+
+    //added by vbc, get receiver id
+    int GetReceiver(int throughput, int last_recv_id);
+
+
     /** thread function for heartbeat */
     void Heartbeat();
 
@@ -150,6 +157,10 @@ class Van {
     int drop_rate_ = 0;
     std::atomic<int> timestamp_{0};
     int init_stage = 0;
+    std::vector<std::vector<int>> A;
+    std::vector<int> B;
+    int receiver_=-1;
+
 
     /**
      * \brief processing logic of AddNode message for scheduler
@@ -180,7 +191,10 @@ class Van {
      * \brief processing logic of Data message
      */
     void ProcessDataMsg(Message* msg);
-
+    //added by vbc, precess ask command
+    void ProcessAskCommand(Message* msg);
+    //added by vbc, process reply command
+    void ProcessReplyCommand(Message* reply);
     /**
      * \brief called by ProcessAddNodeCommand, in scheduler it assigns an id to the
      *        newly added node; in other nodes, it updates the node id with what is received
