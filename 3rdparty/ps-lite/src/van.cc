@@ -9,12 +9,9 @@
 #include "ps/internal/postoffice.h"
 #include "ps/internal/customer.h"
 #include "./network_utils.h"
-#include "./meta.pb.h"
+#include "meta.pb.h"
 #include "./zmq_van.h"
 #include "./resender.h"
-#include<ctime>
-#include<cstdlib>
-#include<numeric>
 namespace ps {
 
 // interval in second between to heartbeast signals. 0 means no heartbeat.
@@ -217,7 +214,6 @@ void Van::ProcessDataMsg(Message* msg) {
   CHECK(obj) << "timeout (5 sec) to wait App " << app_id << " customer " << customer_id \
     << " ready at " << my_node_.role;
   obj->Accept(*msg);
-
 }
 
 void Van::ProcessAddNodeCommand(Message* msg, Meta* nodes, Meta* recovery_nodes) {
@@ -258,14 +254,6 @@ void Van::Start(int customer_id) {
     // get my node info
     if (is_scheduler_) {
       my_node_ = scheduler_;
-
-        int num_servers= Postoffice::Get()->num_servers();//added by vbc, init A and B
-        int num_workers= Postoffice::Get()->num_workers();
-        std::vector<int> temp(num_workers,-1);
-        int i;
-        for(i=0;i<(num_servers+num_workers);i++)A.push_back(temp);
-        for(i=0;i<num_workers;i++)B.push_back(0);
-
     } else {
       auto role = is_scheduler_ ? Node::SCHEDULER :
                   (Postoffice::Get()->is_worker() ? Node::WORKER : Node::SERVER);
@@ -392,7 +380,6 @@ void Van::Receiving() {
   Meta recovery_nodes;  // store recovery nodes
   recovery_nodes.control.cmd = Control::ADD_NODE;
 
-
   while (true) {
     Message msg;
     int recv_bytes = RecvMsg(&msg);
@@ -404,6 +391,7 @@ void Van::Receiving() {
         continue;
       }
     }
+
     CHECK_NE(recv_bytes, -1);
     recv_bytes_ += recv_bytes;
     if (Postoffice::Get()->verbose() >= 2) {
@@ -424,104 +412,13 @@ void Van::Receiving() {
         ProcessBarrierCommand(&msg);
       } else if (ctrl.cmd == Control::HEARTBEAT) {
         ProcessHearbeat(&msg);
-      } else if (ctrl.cmd == Control::ASK) {//vbc
-          ProcessAskCommand(&msg);
-      } else if (ctrl.cmd == Control::REPLY) {
-          ProcessReplyCommand(&msg);
-      }else {
+      } else {
         LOG(WARNING) << "Drop unknown typed message " << msg.DebugString();
       }
     } else {
       ProcessDataMsg(&msg);
     }
   }
-}
-//vbc:ask for scheduler to get receiver_id
-void Van::Ask(int throughput, int last_recv_id)
-{
-    Message msg;
-    msg.meta.customer_id = last_recv_id;//last receiver id
-    msg.meta.app_id = throughput;
-    msg.meta.sender=my_node_.id;
-    msg.meta.recver = kScheduler;
-    msg.meta.control.cmd = Control::ASK;
-    msg.meta.timestamp = timestamp_++;
-    Send(msg);
-}
-//added by vbc
-void Van::ProcessAskCommand(Message* msg)
-{
-    //update A and B
-    int req_node_id = msg->meta.sender-8;//id starts isn't from 0
-    if (msg->meta.app_id != -1) {//isn't the first ask
-        A[req_node_id][msg->meta.customer_id-8] = msg->meta.app_id;
-        B[req_node_id] = 1;
-    }
-    //create reply message
-    Message rpl;
-    rpl.meta.sender = my_node_.id;
-    rpl.meta.recver = req_node_id;
-    rpl.meta.control.cmd = Control::REPLY;
-    //whether transmition is over
-    if(accumulate(B.begin(),B.end(),0)== Postoffice::Get()->num_workers()){
-        rpl.meta.customer_id = -1;
-    }
-    else{//decision making for receiver
-        int receiver_id;
-        int num_know_node=0, num_unknow_node=0;
-        for(auto i:A[req_node_id])//statistic number of known and unknown node about throughput
-        {
-            if(i!=-1)num_know_node++;
-            else num_unknow_node++;
-        }
-        //choose dicision mode
-        unsigned seed;
-        seed=time(0);
-        srand(seed);
-        int rand_number=rand()%10;
-        if(rand_number<=(num_know_node/(num_know_node+num_unknow_node)*10))//greedy mode
-        {
-            int throughput = -1;
-            for (int i = 0; i<A[req_node_id].size(); i++) {
-                if (A[req_node_id][i] > throughput) {
-                    receiver_id = i;
-                    throughput = A[req_node_id][i];
-                }
-            }
-            receiver_id+=8;
-        }
-        else {//random mode
-            rand_number = rand() % num_unknow_node;
-            int counter = 0;
-            for (int i = 0; i < A[req_node_id].size(); i++){
-                if (A[req_node_id][i] == -1) {
-                    if (counter == rand_number) {
-                        receiver_id = i;
-                        break;
-                    } else counter++;
-                  }
-                }
-            receiver_id+=8;
-            }
-        //send reply message
-        rpl.meta.customer_id = receiver_id;
-        Send(rpl);
-        }
-}
-//added by vbc
-void Van::ProcessReplyCommand(Message* reply) {
-    receiver_=reply->meta.customer_id;
-}
-//added by vbc, return receiver id to autopull
-int Van::GetReceiver(int throughput, int last_recv_id)
-{
-    Ask(throughput, last_recv_id);
-    while(receiver_==-1){
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    int temp=receiver_;
-    receiver_=-1;
-    return temp;
 }
 
 void Van::PackMeta(const Meta& meta, char** meta_buf, int* buf_size) {
@@ -530,6 +427,9 @@ void Van::PackMeta(const Meta& meta, char** meta_buf, int* buf_size) {
   pb.set_head(meta.head);
   if (meta.app_id != Meta::kEmpty) pb.set_app_id(meta.app_id);
   if (meta.timestamp != Meta::kEmpty) pb.set_timestamp(meta.timestamp);
+  if(meta.version != Meta::kEmpty) pb.set_version(meta.version);
+  if (meta.key != Meta::kEmpty) pb.set_key(meta.key);
+  PS_VLOG(2) << "Van: Set a package key: " << meta.key;
   if (meta.body.size()) pb.set_body(meta.body);
   pb.set_push(meta.push);
   pb.set_request(meta.request);
@@ -569,6 +469,9 @@ void Van::UnpackMeta(const char* meta_buf, int buf_size, Meta* meta) {
     << "failed to parse string into protobuf";
 
   // to meta
+  meta->key = pb.has_key() ? pb.key() : Meta::kEmpty;
+  meta->version = pb.has_version() ? pb.version() : Meta::kEmpty;
+  PS_VLOG(2) << "Van:Get key " << meta->key;
   meta->head = pb.head();
   meta->app_id = pb.has_app_id() ? pb.app_id() : Meta::kEmpty;
   meta->timestamp = pb.has_timestamp() ? pb.timestamp() : Meta::kEmpty;
